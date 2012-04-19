@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * This script belongs to the TYPO3 build system.                         *
+ *                                                                        *
+ * It is free software; you can redistribute it and/or modify it under    *
+ * the terms of the GNU Lesser General Public License as published by the *
+ * Free Software Foundation, either version 3 of the License, or (at your *
+ * option) any later version.                                             *
+ *                                                                        *
+ * This script is distributed in the hope that it will be useful, but     *
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHAN-    *
+ * TABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser       *
+ * General Public License for more details.                               *
+ *                                                                        *
+ * You should have received a copy of the GNU Lesser General Public       *
+ * License along with the script.                                         *
+ * If not, see http://www.gnu.org/licenses/lgpl.html                      *
+ *                                                                        *
+ * The TYPO3 project - inspiring people to share!                         *
+-->
+<project name="Build">
+	<target name="test-selenium.help" description="Instructions how to run Selenium tests">
+<echo>
+Initial Setup:
+==============
+1) Generate a test-config file. This contains information about which
+   browser to test, and what URL to use:
+    # Use the following for firefox:
+    phing -Dseleniumrc.url=http://your-phoenix-base-uri/ test-selenium-firefox
+    # Use the following for Chrome:
+    phing -Dseleniumrc.url=http://your-phoenix-base-uri/ test-selenium-chrome
+
+Running Tests
+=============
+1) Start Selenium server with
+    phing selenium-server
+2) Make sure you generated the test-config file. (see "Initial Setup" above)
+3) Run Selenium using the phpunit tool:
+    phpunit Tests/Selenium/
+
+Tips and Tricks
+===============
+The standard PHPUnit Command line options can be used; especially helpful
+is to use the "--filter"-option which can be used to run a single test case:
+    phpunit --filter breadcrumbMenuShowsAndHidesNextLevel Tests/Selenium/
+</echo>
+	</target>
+
+	<target name="test-selenium-firefox" description="Run selenium tests in Firefox. For further instructions, run 'phing test-selenium.help'.">
+		<phingcall target="test-selenium.internal">
+			<property name="seleniumrc.browser" value="*chrome" />
+		</phingcall>
+	</target>
+
+	<target name="test-selenium-chrome" description="Run selenium tests in Google Chrome. For further instructions, run 'phing test-selenium.help'.">
+		<phingcall target="test-selenium.internal">
+			<property name="seleniumrc.browser" value="googlechrome" />
+		</phingcall>
+	</target>
+
+	<target name="test-selenium.internal">
+		<echo file="${project.basedir}/Tests/Selenium/settings.xml"><![CDATA[<?xml version="1.0" encoding="UTF-8"?>
+<selenium>
+	<target name="Firefox Testing Phoenix">
+		<browser>${seleniumrc.browser}</browser>
+		<host>${seleniumrc.host}</host>
+		<port>${seleniumrc.port}</port>
+		<timeout>30000</timeout>
+	</target>
+	<url>${seleniumrc.url}</url>
+</selenium>]]></echo>
+		<echo>
+	Selenium is configured now to the following settings:
+	Browser:                ${seleniumrc.browser}
+	Selenium Host:          ${seleniumrc.host}
+	Selenium Port:          ${seleniumrc.port}
+	TYPO3 Phoenix Base URL: ${seleniumrc.url}
+
+	run "phing test-selenium.help" for further instructions.
+		</echo>
+	</target>
+	<target name="selenium-server" description="Run Selenium Server">
+		<adhoc-task name="downloadFile"><![CDATA[
+			class DownloadFileTask extends Task {
+				protected $sourceUri;
+				protected $targetFile;
+
+				public function setSourceUri($sourceUri) {
+					$this->sourceUri = $sourceUri;
+				}
+				public function setTargetFile(PhingFile $targetFile) {
+					$this->targetFile = $targetFile;
+				}
+				public function main() {
+					if ($this->targetFile->exists()) {
+						$this->log('The Selenium Server was found.', Project::MSG_INFO);
+						return;
+					}
+
+					$this->log('The Selenium Server was not found, starting download...', Project::MSG_INFO);
+					$remoteHandle = fopen($this->sourceUri, 'rb');
+					$fileWriter = new FileWriter($this->targetFile, FALSE);
+
+					while (!feof($remoteHandle)) {
+						$chunk = fread($remoteHandle, 8192);
+						$fileWriter->write($chunk);
+					}
+					$fileWriter->flush();
+					$fileWriter->close();
+					fclose($remoteHandle);
+
+					$this->log('The Selenium Server is now downloaded and ready to use.', Project::MSG_INFO);
+				}
+			}
+		]]></adhoc-task>
+		<downloadFile targetFile="${project.buildDirectory}Resources/Java/selenium-server-standalone-2.0b3.jar" sourceUri="http://selenium.googlecode.com/files/selenium-server-standalone-2.0b3.jar" />
+		<exec command="java -jar ${project.buildDirectory}Resources/Java/selenium-server-standalone-2.0b3.jar -browserSessionReuse -userExtensions ${project.buildDirectory}Resources/Java/user-extensions.js" passthru="true" />
+	</target>
+	<target name="doc-render-js-api">
+		<!-- building ext-doc if it does not exist -->
+		<if>
+			<not>
+				<available file="${project.buildDirectory}Resources/Java/ext-doc/build/dist/ext-doc-snapshot/ext-doc.jar"/>
+			</not>
+			<then>
+				<exec command="ant" dir="${project.buildDirectory}Resources/Java/ext-doc/" />
+			</then>
+		</if>
+
+		<exec command="java -jar ${project.buildDirectory}Resources/Java/ext-doc/build/dist/ext-doc-snapshot/ext-doc.jar -p ${project.buildDirectory}Resources/JSAPI/ext.xml -o ${project.basedir}/Packages/Application/TYPO3/Documentation/JSAPI -t ${project.buildDirectory}Resources/Java/ext-doc/template/ext/template.xml -verbose" logoutput="true" />
+	</target>
+
+	<target name="build" depends="clean, doc-render, doc-render-js-api, createarchives"/>
+
+	<target name="deploy-latest">
+		<fail unless="env.BUILD_NUMBER" message="You must set the environment variable BUILD_NUMBER for this task."/>
+		<fail unless="releaseVersion" message="You must set the releaseVersion property for this task."/>
+		<if>
+			<not>
+				<available file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2"/>
+			</not>
+			<then>
+				<phingcall target="build-latest"/>
+			</then>
+		</if>
+		<exec logoutput="true" checkreturn="true" command="scp ${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2 ${ssh.host.demo}:${path.latest.base}"/>
+
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.latest.base}/Web"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.latest.base}/Packages"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.latest.base}/Configuration"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.latest.base}/Data"/>
+
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} tar -C ${path.latest.base} -xjf ${path.latest.base}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm ${path.latest.base}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} cp ${path.latest.base}favicon.ico ${path.latest.base}Web/"/>
+
+		<php function="file_get_contents">
+			<param value="${url.latest.base}typo3/setup/importandcreateadministrator?packageKey=PhoenixDemoTypo3Org&amp;identifier=admin&amp;password=password&amp;person[name][firstName]=George&amp;person[name][lastName]=Hudson"/>
+		</php>
+	</target>
+	<target name="build-latest" depends="clean, doc-render, doc-render-js-api, create-archive-bz2"/>
+
+	<target name="deploy-sprint">
+		<fail unless="buildNumber" message="You must set the buildNumber property for this task."/>
+		<fail unless="releaseVersion" message="You must set the releaseVersion property for this task."/>
+		<if>
+			<not>
+				<available file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${buildNumber}.tar.bz2"/>
+			</not>
+			<then>
+				<fail message="No release archive TYPO3-Phoenix-${releaseVersion}-build${buildNumber}.tar.bz2 found"/>
+			</then>
+		</if>
+		<exec logoutput="true" checkreturn="true" command="scp ${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${buildNumber}.tar.bz2 ${ssh.host.demo}:${path.demo.base}"/>
+
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.demo.base}/Web"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.demo.base}/Packages"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.demo.base}/Configuration"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm -rf ${path.demo.base}/Data"/>
+
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} tar -C ${path.demo.base} -xjf ${path.demo.base}TYPO3-Phoenix-${releaseVersion}-build${buildNumber}.tar.bz2"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} rm ${path.demo.base}TYPO3-Phoenix-${releaseVersion}-build${buildNumber}.tar.bz2"/>
+		<exec logoutput="true" checkreturn="true" command="ssh ${ssh.host.demo} cp ${path.demo.base}favicon.ico ${path.demo.base}Web/"/>
+
+		<php function="file_get_contents">
+			<param value="${url.demo.base}typo3/setup/importandcreateadministrator?packageKey=PhoenixDemoTypo3Org&amp;identifier=admin&amp;password=password&amp;person[name][firstName]=George&amp;person[name][lastName]=Hudson"/>
+		</php>
+	</target>
+
+	<target name="release-sprint" description="Release Phoenix sprint result to SourceForge and flow3.typo3.org">
+		<fail unless="env.RELEASE_VERSION" message="You must set the environment variable RELEASE_VERSION for this task."/>
+		<property name="releaseVersion" value="${env.RELEASE_VERSION}"/>
+
+		<phingcall target="lint"/>
+		<phingcall target="test"/>
+		<phingcall target="release-tag"/>
+		<phingcall target="build"/>
+
+		<phingcall target="doc-publish-api">
+			<property name="packageKey" value="TYPO3"/>
+		</phingcall>
+		<phingcall target="doc-publish-manual">
+			<property name="packageKey" value="TYPO3"/>
+		</phingcall>
+		<phingcall target="doc-publish-manual">
+			<property name="packageKey" value="TYPO3"/>
+			<property name="manual.folder" value="UserInterfaceDevelopment"/>
+		</phingcall>
+		<phingcall target="doc-publish-api">
+			<property name="packageKey" value="TYPO3CR"/>
+		</phingcall>
+		<phingcall target="doc-publish-api">
+			<property name="packageKey" value="TypoScript"/>
+		</phingcall>
+		<phingcall target="doc-publish-manual">
+			<property name="packageKey" value="TypoScript"/>
+		</phingcall>
+
+		<phingcall target="deploy-sprint">
+			<property name="buildNumber" value="${env.BUILD_NUMBER}"/>
+		</phingcall>
+		<phingcall target="release-publish-archives"/>
+	</target>
+
+	<target name="createarchives" depends="create-archive-zip,create-archive-gz,create-archive-bz2"/>
+	<target name="create-archive-zip">
+		<fail unless="releaseVersion" message="You must set the releaseVersion property for this task."/>
+
+		<mkdir dir="${project.archivesDirectory}"/>
+
+		<delete file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.zip" quiet="true"/>
+		<zip destfile="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.zip">
+			<fileset refid="files-for-release-archive"/>
+		</zip>
+
+		<filehash file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.zip" propertyname="md5.zip"/>
+		<echo>MD5 hash for the generated archive is:</echo>
+		<echo>${md5.zip} TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.zip</echo>
+	</target>
+	<target name="create-archive-gz">
+		<fail unless="releaseVersion" message="You must set the releaseVersion property for this task."/>
+
+		<mkdir dir="${project.archivesDirectory}"/>
+
+		<delete file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.gz" quiet="true"/>
+		<tar destfile="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.gz" compression="gzip">
+			<fileset refid="files-for-release-archive"/>
+		</tar>
+
+		<filehash file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.gz" propertyname="md5.targz"/>
+		<echo>MD5 hash for the generated archive is:</echo>
+		<echo>${md5.targz} TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.gz</echo>
+	</target>
+	<target name="create-archive-bz2">
+		<fail unless="releaseVersion" message="You must set the releaseVersion property for this task."/>
+
+		<mkdir dir="${project.archivesDirectory}"/>
+
+		<delete file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2" quiet="true"/>
+		<tar destfile="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2" compression="bzip2">
+			<fileset refid="files-for-release-archive"/>
+		</tar>
+
+		<filehash file="${project.archivesDirectory}TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2" propertyname="md5.tarbz2"/>
+		<echo>MD5 hash for the generated archive is:</echo>
+		<echo>${md5.tarbz2} TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.tar.bz2</echo>
+	</target>
+
+	<target name="release-publish-archives">
+		<fail unless="releaseVersion" message="You must set the releaseVersion property for this task."/>
+
+		<mkdir dir="${project.archivesDirectory}TYPO3 Phoenix/${releaseVersion}"/>
+		<copy todir="${project.archivesDirectory}TYPO3 Phoenix/${releaseVersion}">
+			<fileset dir="${project.archivesDirectory}">
+				<include name="TYPO3-Phoenix-${releaseVersion}-build${env.BUILD_NUMBER}.*"/>
+			</fileset>
+		</copy>
+		<exec logoutput="true" checkreturn="true" command="rsync -avP -e ssh ${project.archivesDirectory}TYPO3\ Phoenix typo3.frs.sourceforge.net:/home/frs/project/t/ty/typo3/"/>
+		<delete dir="${project.archivesDirectory}TYPO3\ Phoenix" quiet="true" includeemptydirs="true"/>
+	</target>
+</project>
