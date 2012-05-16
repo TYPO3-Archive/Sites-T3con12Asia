@@ -61,3 +61,9 @@
 [submodule "Packages/Sites/TYPO3.T3con12AsiaTypo3Org"]
 	path = Packages/Sites/TYPO3.T3con12AsiaTypo3Org
 	url = git://git.typo3.org/FLOW3/Packages/T3con12Asia.git
+[submodule "Packages/Framework/TYPO3.Setup"]
+	path = Packages/Framework/TYPO3.Setup
+	url = git://git.typo3.org/FLOW3/Packages/TYPO3.Setup.git
+[submodule "Packages/Framework/Symfony.Component.DomCrawler"]
+	path = Packages/Framework/Symfony.Component.DomCrawler
+	url = git://git.typo3.org/FLOW3/Packages/Symfony.Component.DomCrawler.git
